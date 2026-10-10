@@ -2,11 +2,12 @@
 
 import { Prisma } from "@prisma/client";
 import { createHash } from "node:crypto";
+import { headers } from "next/headers";
 import { hashPassword } from "@/lib/auth";
 import { sendPasswordResetEmail } from "@/lib/email";
 import { getDb } from "@/lib/db";
 import { createPasswordResetToken, getAppOrigin, hashPasswordResetToken, isPasswordResetTokenFormat, PASSWORD_RESET_LIFETIME_MS } from "@/lib/password-reset";
-import { takeRateLimit } from "@/lib/rate-limit";
+import { checkClientRateLimit, checkRateLimit } from "@/lib/rate-limit";
 
 const genericRequestMessage = "If an account matches that email, password reset instructions will be sent shortly.";
 const invalidLinkMessage = "This reset link is invalid or has expired. Request a new one and try again.";
@@ -18,9 +19,15 @@ export async function requestPasswordReset(_previous: PasswordResetRequestState,
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return { message: genericRequestMessage };
 
+  const clientLimit = await checkClientRateLimit(await headers(), 10, 15 * 60_000);
+  if (!clientLimit.available) return { message: "Password recovery is temporarily unavailable. Please try again shortly." };
+  if (!clientLimit.allowed) return { message: "Too many recovery requests from this connection. Please wait and try again." };
   const emailKey = `password-reset:${createHash("sha256").update(email).digest("hex")}`;
-  const emailLimit = takeRateLimit(emailKey, 3, 15 * 60_000);
-  const globalLimit = takeRateLimit("password-reset:global", 100, 15 * 60_000);
+  const emailLimit = await checkRateLimit(emailKey, 3, 15 * 60_000);
+  const globalLimit = emailLimit.available
+    ? await checkRateLimit("password-reset:global", 100, 15 * 60_000)
+    : emailLimit;
+  if (!emailLimit.available || !globalLimit.available) return { message: "Password recovery is temporarily unavailable. Please try again shortly." };
   if (!emailLimit.allowed || !globalLimit.allowed) {
     return { message: "Too many reset requests were made. Please wait a little while, then try again." };
   }
@@ -66,7 +73,11 @@ export async function resetPassword(_previous: PasswordResetState, formData: For
   if (password.length < 8 || password.length > 128) return { error: "Choose a password between 8 and 128 characters." };
   if (password !== confirmation) return { error: "The passwords do not match." };
 
-  const rate = takeRateLimit(`password-reset-use:${hashPasswordResetToken(token)}`, 5, 15 * 60_000);
+  const clientLimit = await checkClientRateLimit(await headers(), 10, 15 * 60_000);
+  if (!clientLimit.available) return { error: "Password recovery is temporarily unavailable. Please try again shortly." };
+  if (!clientLimit.allowed) return { error: invalidLinkMessage };
+  const rate = await checkRateLimit(`password-reset-use:${hashPasswordResetToken(token)}`, 5, 15 * 60_000);
+  if (!rate.available) return { error: "Password recovery is temporarily unavailable. Please try again shortly." };
   if (!rate.allowed) return { error: invalidLinkMessage };
 
   try {

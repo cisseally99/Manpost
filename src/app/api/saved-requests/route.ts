@@ -3,14 +3,15 @@ import { getCurrentUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { validatePersistedRequest } from "@/lib/api-validation";
 import { InputError, isPlainObject, isSameOriginMutation, readJsonBody } from "@/lib/request-security";
-import { takeRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
 export async function GET() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Sign in to view saved requests." }, { status: 401 });
-  const rate = takeRateLimit(`saved-read:${user.id}`, 120, 60_000);
+  const rate = await checkRateLimit(`saved-read:${user.id}`, 120, 60_000);
+  if (!rate.available) return NextResponse.json({ error: "Request protection is temporarily unavailable. Try again shortly." }, { status: 503 });
   if (!rate.allowed) return NextResponse.json({ error: "Please wait before refreshing saved requests again." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
   const requests = await getDb().savedRequest.findMany({ where: { userId: user.id }, include: { collection: { select: { name: true } } }, orderBy: { updatedAt: "desc" }, take: 500 });
   return NextResponse.json({ requests: requests.map(({ collection, ...item }) => ({ ...item, collection: collection?.name ?? "My requests" })) }, { headers: { "Cache-Control": "no-store" } });
@@ -20,7 +21,8 @@ export async function POST(request: Request) {
   if (!isSameOriginMutation(request)) return NextResponse.json({ error: "This request must come from Manpost." }, { status: 403 });
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Sign in to save requests." }, { status: 401 });
-  const rate = takeRateLimit(`saved-write:${user.id}`, 30, 60_000);
+  const rate = await checkRateLimit(`saved-write:${user.id}`, 30, 60_000);
+  if (!rate.available) return NextResponse.json({ error: "Request protection is temporarily unavailable. Try again shortly." }, { status: 503 });
   if (!rate.allowed) return NextResponse.json({ error: "Requests are being saved too quickly. Wait a moment and try again." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
 
   try {
@@ -42,7 +44,8 @@ export async function DELETE(request: Request) {
   if (!isSameOriginMutation(request)) return NextResponse.json({ error: "This request must come from Manpost." }, { status: 403 });
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Sign in to manage saved requests." }, { status: 401 });
-  const rate = takeRateLimit(`saved-write:${user.id}`, 30, 60_000);
+  const rate = await checkRateLimit(`saved-write:${user.id}`, 30, 60_000);
+  if (!rate.available) return NextResponse.json({ error: "Request protection is temporarily unavailable. Try again shortly." }, { status: 503 });
   if (!rate.allowed) return NextResponse.json({ error: "Requests are being changed too quickly. Wait a moment and try again." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
   const id = new URL(request.url).searchParams.get("id");
   if (!id || id.length > 64) return NextResponse.json({ error: "A valid request ID is required." }, { status: 400 });

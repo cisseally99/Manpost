@@ -7,18 +7,23 @@
     "build": "next build",
     "start": "node scripts/run-next.mjs start",
     "lint": "eslint",
-    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/request-security.test.ts tests/rate-limit.test.ts tests/api-validation.test.ts tests/email-settings.test.ts",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/request-security.test.ts tests/rate-limit.test.ts tests/api-validation.test.ts tests/email-settings.test.ts tests/sentry-privacy.test.ts",
     "db:generate": "prisma generate",
+    "db:check": "node scripts/check-database.mjs",
     "db:migrate": "prisma migrate dev",
-    "db:deploy": "prisma migrate deploy"
+    "db:deploy": "prisma migrate deploy",
+    "email:verify": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types scripts/verify-smtp.mjs"
   },
   "dependencies": {
     "@codemirror/lang-json": "^6.0.2",
     "@prisma/client": "6.19.3",
+    "@sentry/nextjs": "^11.6.0",
     "@types/nodemailer": "^8.0.2",
     "@uiw/react-codemirror": "^4.25.12",
+    "@upstash/ratelimit": "^2.2.0",
+    "@upstash/redis": "^1.39.0",
     "lucide-react": "^1.49.0",
-    "next": "16.3.6",
+    "next": "16.3.8",
     "nodemailer": "^10.0.15",
     "react": "19.3.0",
     "react-dom": "19.3.0"
@@ -29,10 +34,13 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "eslint": "^9.0.0",
-    "eslint-config-next": "16.3.6",
+    "eslint-config-next": "16.3.8",
     "postcss": "^8.5.0",
     "prisma": "6.19.3",
     "tailwindcss": "4.3.3",
     "typescript": "^5.0.0"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.0"
   }
 }

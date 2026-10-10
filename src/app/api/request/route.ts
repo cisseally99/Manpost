@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { isSameOriginMutation, InputError, readJsonBody, resolvePublicTarget, sendBoundedRequest, validateOutboundInput } from "@/lib/request-security";
-import { takeRateLimit } from "@/lib/rate-limit";
+import { checkClientRateLimit, checkRateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -11,7 +11,11 @@ export async function POST(request: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Sign in to send requests." }, { status: 401 });
 
-  const rate = takeRateLimit(`outbound:${user.id}`, 30, 60_000);
+  const clientRate = await checkClientRateLimit(request.headers, 60, 60_000);
+  if (!clientRate.available) return NextResponse.json({ error: "Request protection is temporarily unavailable. Try again shortly." }, { status: 503 });
+  if (!clientRate.allowed) return NextResponse.json({ error: "Requests from this connection are being sent too quickly. Wait a moment and try again." }, { status: 429, headers: { "Retry-After": String(clientRate.retryAfterSeconds) } });
+  const rate = await checkRateLimit(`outbound:${user.id}`, 30, 60_000);
+  if (!rate.available) return NextResponse.json({ error: "Request protection is temporarily unavailable. Try again shortly." }, { status: 503 });
   if (!rate.allowed) return NextResponse.json({ error: "You’re sending requests too quickly. Wait a moment and try again." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
 
   try {

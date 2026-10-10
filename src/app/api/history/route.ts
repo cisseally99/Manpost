@@ -3,14 +3,15 @@ import { getCurrentUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { validateHistoryMetadata, validatePersistedRequest } from "@/lib/api-validation";
 import { InputError, isPlainObject, isSameOriginMutation, readJsonBody } from "@/lib/request-security";
-import { takeRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
 export async function GET() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Sign in to view request history." }, { status: 401 });
-  const rate = takeRateLimit(`history-read:${user.id}`, 120, 60_000);
+  const rate = await checkRateLimit(`history-read:${user.id}`, 120, 60_000);
+  if (!rate.available) return NextResponse.json({ error: "Request protection is temporarily unavailable. Try again shortly." }, { status: 503 });
   if (!rate.allowed) return NextResponse.json({ error: "Please wait before refreshing history again." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
   const history = await getDb().requestHistory.findMany({ where: { userId: user.id }, orderBy: { createdAt: "desc" }, take: 50 });
   return NextResponse.json({ history }, { headers: { "Cache-Control": "no-store" } });
@@ -20,7 +21,8 @@ export async function POST(request: Request) {
   if (!isSameOriginMutation(request)) return NextResponse.json({ error: "This request must come from Manpost." }, { status: 403 });
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Sign in to save request history." }, { status: 401 });
-  const rate = takeRateLimit(`history-write:${user.id}`, 60, 60_000);
+  const rate = await checkRateLimit(`history-write:${user.id}`, 60, 60_000);
+  if (!rate.available) return NextResponse.json({ error: "Request protection is temporarily unavailable. Try again shortly." }, { status: 503 });
   if (!rate.allowed) return NextResponse.json({ error: "History is being updated too quickly. Wait a moment and try again." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
 
   try {
@@ -40,7 +42,8 @@ export async function DELETE(request: Request) {
   if (!isSameOriginMutation(request)) return NextResponse.json({ error: "This request must come from Manpost." }, { status: 403 });
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Sign in to clear request history." }, { status: 401 });
-  const rate = takeRateLimit(`history-write:${user.id}`, 60, 60_000);
+  const rate = await checkRateLimit(`history-write:${user.id}`, 60, 60_000);
+  if (!rate.available) return NextResponse.json({ error: "Request protection is temporarily unavailable. Try again shortly." }, { status: 503 });
   if (!rate.allowed) return NextResponse.json({ error: "History is being updated too quickly. Wait a moment and try again." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
   await getDb().requestHistory.deleteMany({ where: { userId: user.id } });
   return NextResponse.json({ success: true }, { headers: { "Cache-Control": "no-store" } });

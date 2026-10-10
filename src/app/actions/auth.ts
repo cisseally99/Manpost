@@ -1,9 +1,12 @@
 "use server";
 
 import { Prisma } from "@prisma/client";
+import { createHash } from "node:crypto";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { clearSession, createSession, hashPassword, verifyPassword } from "@/lib/auth";
 import { getDb } from "@/lib/db";
+import { checkClientRateLimit, checkRateLimit } from "@/lib/rate-limit";
 
 export type AuthState = { error?: string };
 
@@ -13,6 +16,14 @@ export async function register(_previous: AuthState, formData: FormData): Promis
   const password = String(formData.get("password") ?? "");
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return { error: "Enter a valid email address." };
   if (password.length < 8 || password.length > 128) return { error: "Choose a password between 8 and 128 characters." };
+
+  const clientRate = await checkClientRateLimit(await headers(), 10, 15 * 60_000);
+  if (!clientRate.available) return { error: "Sign-up protection is temporarily unavailable. Please try again shortly." };
+  if (!clientRate.allowed) return { error: "Too many sign-up attempts from this connection. Wait a little while and try again." };
+  const signupKey = `auth:register:${createHash("sha256").update(email).digest("hex")}`;
+  const signupRate = await checkRateLimit(signupKey, 5, 15 * 60_000);
+  if (!signupRate.available) return { error: "Sign-up protection is temporarily unavailable. Please try again shortly." };
+  if (!signupRate.allowed) return { error: "Too many sign-up attempts for this email. Wait a little while and try again." };
 
   try {
     const db = getDb();
@@ -30,6 +41,13 @@ export async function login(_previous: AuthState, formData: FormData): Promise<A
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
   if (!email || !password) return { error: "Enter your email and password." };
+  const clientRate = await checkClientRateLimit(await headers(), 30, 15 * 60_000);
+  if (!clientRate.available) return { error: "Sign-in protection is temporarily unavailable. Please try again shortly." };
+  if (!clientRate.allowed) return { error: "Too many sign-in attempts from this connection. Wait a little while and try again." };
+  const loginKey = `auth:login:${createHash("sha256").update(email).digest("hex")}`;
+  const loginRate = await checkRateLimit(loginKey, 10, 15 * 60_000);
+  if (!loginRate.available) return { error: "Sign-in protection is temporarily unavailable. Please try again shortly." };
+  if (!loginRate.allowed) return { error: "Too many sign-in attempts. Wait a little while and try again." };
   try {
     const db = getDb();
     const user = await db.user.findUnique({ where: { email }, select: { id: true, passwordHash: true } });
