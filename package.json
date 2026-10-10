@@ -1,0 +1,38 @@
+{
+  "name": "manpost",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/run-next.mjs dev",
+    "build": "next build",
+    "start": "node scripts/run-next.mjs start",
+    "lint": "eslint",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/request-security.test.ts tests/rate-limit.test.ts tests/api-validation.test.ts tests/email-settings.test.ts",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy"
+  },
+  "dependencies": {
+    "@codemirror/lang-json": "^6.0.2",
+    "@prisma/client": "6.19.3",
+    "@types/nodemailer": "^8.0.2",
+    "@uiw/react-codemirror": "^4.25.12",
+    "lucide-react": "^1.49.0",
+    "next": "16.3.6",
+    "nodemailer": "^10.0.15",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "eslint": "^9.0.0",
+    "eslint-config-next": "16.3.6",
+    "postcss": "^8.5.0",
+    "prisma": "6.19.3",
+    "tailwindcss": "4.3.3",
+    "typescript": "^5.0.0"
+  }
+}
