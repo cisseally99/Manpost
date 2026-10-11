@@ -5,10 +5,17 @@ import { Redis } from "@upstash/redis";
 type Bucket = { count: number; expiresAt: number };
 export type RateLimitResult = { allowed: boolean; retryAfterSeconds: number; available: boolean };
 
+export function getRedisCredentials() {
+  return {
+    url: process.env.UPSTASH_REDIS_REST_URL?.trim() || process.env.KV_REST_API_URL?.trim() || "",
+    token: process.env.UPSTASH_REDIS_REST_TOKEN?.trim() || process.env.KV_REST_API_TOKEN?.trim() || "",
+  };
+}
+
 export function getClientRateLimitKey(headers: Headers): string | null {
   if (process.env.VERCEL !== "1") return "client:local";
   const address = headers.get("x-forwarded-for")?.split(",", 1)[0]?.trim();
-  const key = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
+  const key = getRedisCredentials().token;
   if (!address || !key) return null;
   const digest = createHmac("sha256", key).update(address).digest("hex");
   return `client:${digest}`;
@@ -36,13 +43,13 @@ function takeLocalRateLimit(key: string, limit: number, windowMs: number, now: n
   };
 }
 
-function getLimiter(limit: number, windowMs: number) {
+function getLimiter(limit: number, windowMs: number, url: string, token: string) {
   const windowSeconds = Math.max(1, Math.ceil(windowMs / 1000));
   const key = `${limit}:${windowSeconds}`;
   let limiter = limiters.get(key);
   if (!limiter) {
     limiter = new Ratelimit({
-      redis: Redis.fromEnv(),
+      redis: new Redis({ url, token }),
       limiter: Ratelimit.fixedWindow(limit, `${windowSeconds} s`),
       prefix: "manpost:rate-limit",
     });
@@ -57,8 +64,7 @@ export async function checkRateLimit(
   windowMs: number,
   now = Date.now(),
 ): Promise<RateLimitResult> {
-  const url = process.env.UPSTASH_REDIS_REST_URL?.trim();
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
+  const { url, token } = getRedisCredentials();
 
   if (!url && !token) {
     if (process.env.NODE_ENV === "production") {
@@ -69,7 +75,7 @@ export async function checkRateLimit(
   if (!url || !token) return { allowed: false, retryAfterSeconds: 60, available: false };
 
   try {
-    const result = await getLimiter(limit, windowMs).limit(key);
+    const result = await getLimiter(limit, windowMs, url, token).limit(key);
     return {
       allowed: result.success,
       retryAfterSeconds: Math.max(1, Math.ceil((result.reset - now) / 1000)),
